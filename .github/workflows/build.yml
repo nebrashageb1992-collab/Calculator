@@ -12,14 +12,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
       - name: Setup Gradle
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.4-bin.zip -O /tmp/g.zip
           unzip -q /tmp/g.zip -d /opt
           echo "/opt/gradle-8.4/bin" >> $GITHUB_PATH
-      - name: Build
-        run: gradle assembleDebug --no-daemon
+      - name: Build with Gradle
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Check APK
+        run: ls -la app/build/outputs/apk/debug/ || true
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
