@@ -13,17 +13,31 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Setup Gradle
+      - name: Install SDK components
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+      - name: Show environment
         run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.4-bin.zip -O /tmp/g.zip
-          unzip -q /tmp/g.zip -d /opt
-          echo "/opt/gradle-8.4/bin" >> $GITHUB_PATH
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          java -version
+          gradle --version
+          echo "=== project files ==="
+          ls -la
+          ls -la app
       - name: Build
-        run: gradle assembleDebug --no-daemon --stacktrace
-      - name: Check APK
-        run: ls -lh app/build/outputs/apk/debug/ || true
+        run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: Find APK
+        if: always()
+        run: find . -name "*.apk" -exec ls -lh {} \; || true
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Calculator-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
