@@ -13,14 +13,21 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.2.1"
-      - name: Install SDK
+      - name: Accept licenses
+        run: yes | sdkmanager --licenses || true
+      - name: Install SDK components
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
       - name: Build
         run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
