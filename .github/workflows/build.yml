@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,29 +12,15 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
       - uses: android-actions/setup-android@v3
-      - name: Install SDK components
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.2.1"
+      - name: Install SDK
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-      - name: Show environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          java -version
-          gradle --version
-          echo "=== project files ==="
-          ls -la
-          ls -la app
       - name: Build
         run: gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
-      - name: Find APK
-        if: always()
-        run: find . -name "*.apk" -exec ls -lh {} \; || true
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
